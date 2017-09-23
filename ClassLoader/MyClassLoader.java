@@ -7,18 +7,15 @@ import javax.crypto.spec.*;
 public class MyClassLoader extends ClassLoader {
 	// 这些对象在构造函数中设置，
 	// 以后loadClass()方法将利用它们解密类
-	private SecretKey key;
 	private Cipher cipher;
 
 	// 设置解密所需要的对象
-	public MyClassLoader(SecretKey key) throws GeneralSecurityException, IOException {
-		this.key = key;
-
-		String algorithm = "DES";
-		SecureRandom sr = new SecureRandom();
+	public MyClassLoader(SecretKey key,DESKeySpec dks) throws GeneralSecurityException, IOException {
 		System.err.println("[MyClassLoader: creating cipher]");
-		cipher = Cipher.getInstance(algorithm);
-		cipher.init(Cipher.DECRYPT_MODE, key, sr);
+//        SecureRandom sr = new SecureRandom();
+        //初始化cipher
+		cipher = Cipher.getInstance("DES");
+		cipher.init(Cipher.DECRYPT_MODE, key);
 	}
 
 	// main过程：读入密匙，创建MyClassLoader的
@@ -28,43 +25,37 @@ public class MyClassLoader extends ClassLoader {
 	static public void main(String args[]) throws Exception {
 		String keyFilename = args[0];
 		String appName = args[1];
-
 		// 这些是传递给应用本身的参数
 		String realArgs[] = new String[args.length - 2];
 		System.arraycopy(args, 2, realArgs, 0, args.length - 2);
-
 		// 读取密匙
 		System.err.println("[MyClassLoader: reading key]");
-		byte rawKey[] = FileUtil.readFile(keyFilename);
+		byte[] rawKey = FileUtil.readFile(keyFilename);
 		DESKeySpec dks = new DESKeySpec(rawKey);
 		SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("DES");
 		SecretKey key = keyFactory.generateSecret(dks);
-
 		// 创建解密的ClassLoader
-		MyClassLoader dr = new MyClassLoader(key);
-
+		MyClassLoader dr = new MyClassLoader(key,dks);
 		// 创建应用主类的一个实例
 		// 通过ClassLoader装入它
 		System.err.println("[MyClassLoader: loading " + appName + "]");
 		Class clasz = dr.loadClass(appName);
-
 		// 最后，通过Reflection API调用应用实例的main()方法
-
 		// 获取一个对main()的引用
-		String proto[] = new String[1];
 		Class mainArgs[] = { (new String[1]).getClass() };
 		Method main = clasz.getMethod("main", mainArgs);
-
 		// 创建一个包含main()方法参数的数组
 		Object argsArray[] = { realArgs };
 		System.err.println("[MyClassLoader: running " + appName + ".main()]");
-
 		// 调用main()
 		main.invoke(null, argsArray);
 	}
 
+	@Override
 	public Class loadClass(String name, boolean resolve) throws ClassNotFoundException {
-		try {
+
+        System.out.println("loading class name:"+name);
+        try {
 			// 要创建的Class对象
 			Class clasz = null;
 
@@ -73,22 +64,21 @@ public class MyClassLoader extends ClassLoader {
 
 			if (clasz != null)
 				return clasz;
-
 			// 下面是定制部分
 			try {
 				// 读取经过加密的类文件
-				byte classData[] = FileUtil.readFile(name + ".class");
-
-				if (classData != null) {
+				byte[] classData = FileUtil.readFile(name + ".class");
+                System.out.println("reading class data and its length:"+classData.length);
+                if (classData != null) {
 					// 解密...
 					byte decryptedClassData[] = cipher.doFinal(classData);
 
 					// ... 再把它转换成一个类
-					clasz = defineClass(name.replace('/', '.'), decryptedClassData, 0, decryptedClassData.length);
+					clasz = defineClass(name.replace('\\', '.'), decryptedClassData, 0, decryptedClassData.length);
 					System.err.println("[MyClassLoader: decrypting class " + name + "]");
 				}
 			} catch (FileNotFoundException e) {
-				//e.printStackTrace();
+//				e.printStackTrace();
 			}
 
 			// 如果上面没有成功尝试用默认的ClassLoader装入它
